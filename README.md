@@ -1,9 +1,7 @@
 This software package was originally posted 12/29/2011 BY trboars@yahoo.com @ http://groups.yahoo.com/group/MOTOTRBO/message/2490
-The mediafire links has been vaporized. Reposted here unmodified for all.
+The mediafire links has been vaporized. Reposted here unmodified for all. 
 
-Original posting from groups.yahoo.com/groups/mototrbo
-
-
+---------------------
 Here is new version ARS service and APRS gateway for TRBO. Old version had not
 one file which was needed to run.
 
