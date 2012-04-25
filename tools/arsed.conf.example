@@ -1,0 +1,97 @@
+
+# ARS-E daemon configuration
+# remember, there's no reason to run arsed as root. So do nicht.
+
+# you place this configuration in either /usr/local/etc or /etc.
+# Named trbod.conf!
+
+# This is where arsed stores current state, so that it can
+# be see by other program such as web status display.
+# The state is reloaded after restart from this file.
+state_dump:	/var/tmp/arsed_state.json
+
+# APRS-IS callsign and passcode for your trbo - APRS gateway.
+#
+# optional, comment aprsis_server if you don't use APRS gateway.
+#
+# good server selections:
+#	euro.aprs2.net:14580 (europe)
+#	noam.aprs2.net:14580 (north america)
+#	soam.aprs2.net:14580 (south america)
+#	asia.aprs2.net:14580 (asia)
+#	aunz.aprs2.net:14580 (australia)
+#
+# callsign: How about if we use -TG SSID for TRBO gateways
+# so we can has search for them! Numeric SSID are not required
+# on APRS-IS.
+#
+callsign:	YOURCALL-TG
+passcode:	15234
+#aprsis_server:	asia.aprs2.net:14580
+
+# Your gw coordinates in decimal degrees (not in APRS format! Decimal I said!)
+# positive is north and east, negative is south and west
+# (not used yet... should add gw position beacon and telemetry tx)
+latitude:	0.000
+longitude:	0.000
+
+# Master radio configuration. Currently not used for anything, but the
+# ARS and TMS radio IDs are set in CPS for client radios.
+master_radio_ip:	192.168.108.1
+master_radio_id:	123456
+
+# CAI network settings, must match what you have configured in CPS
+# (all radios on channel must have same settings!)
+cai_network:		10
+cai_group_network:	225
+
+# these must match radio configuration, too:
+# Automatic Registration Service UDP Port, configured in CPS
+ars_port:		4005
+# Text Messaging Service UDP Port, configured in CPS
+tms_port:		4007
+# The GPS location port is actually not configurable in CPS.
+loc_port:		4001
+
+# timers, set in seconds:
+# how often to 'ping' station if it has not been heard lately
+ars_ping_interval:	160
+# ARS timeout: when to consider station as being away from network
+ars_timeout:		370
+# GPS location request interval, set to 0 if you not want receive
+# GPS data from radios
+gps_req_interval:	120
+
+# some thought on above:
+#
+# ars_ping_interval should be larger than gps_req_interval,
+# so unnecessary pings can be avoid thanks to incoming positions.
+#
+# ars_timeout should probably be ars_ping_interval*2 and then some.
+#
+# it's probably no good to set these to very low values, since they can
+# keep channel busy (PTT down on radio says "Channel busy" if data
+# traffic is ongoing and user is then annoyed). Better go up from
+# these values than down.
+#
+
+# messaging settings:
+# How old messages (in seconds) are dropped from TX queue
+tms_queue_max_age:		3600
+# Initial retransmission interval (too low if duplicates emerge!)
+tms_init_retry_interval:	30
+
+# Radios follow, in following format (remove # comment sign):
+# The callsign will be used for status display and APRS gateway
+#---
+#id: RADIOID
+#callsign: CALLSIGN-TR
+#
+#---
+#id: 12345
+#callsign: N0CALL-TR
+#
+#---
+#id: 12346
+#callsign: N1CALL-TR
+#

@@ -1,0 +1,49 @@
+
+body {
+    font-family: verdana, arial, helvetica, sans-serif;
+    font-size: 12px;
+}
+
+
+.grey { color: #666; }
+.bold { font-weight: bold; }
+
+div.title {
+    color: #000;
+    margin-top: 5px;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+div.radios {
+    margin-top: 10px;
+}
+
+div.table {
+    margin-top: 10px;
+}
+
+div.unshown {
+    color: #666;
+    margin-top: 5px;
+}
+
+div.footer {
+    margin-top: 20px;
+    color: #666;
+    font-size: 8px;
+}
+
+tr.here td {
+    background-color: #eaffdf;
+    padding: 2px 3px 2px 3px;
+}
+
+tr.separator td {
+}
+
+tr.away td {
+    background-color: #ffebeb;
+    color: #666;
+    padding: 2px 3px 2px 3px;
+}

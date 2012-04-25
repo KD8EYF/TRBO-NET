@@ -1,0 +1,433 @@
+#!/usr/bin/perl
+
+# ARS-E daemon: ARS Extendable
+
+use strict;
+use warnings;
+
+use Data::Dumper;
+use YAML::Tiny;
+use Digest::MD5 qw(md5_hex);
+use JSON;
+use Ham::APRS::IS;
+use Ham::APRS::FAP;
+use TRBO::NET;
+use TRBO::DupeCache;
+
+my $me = 'arsed';
+my $VERSION = '1.00';
+
+my $c;
+my @cfgfiles = ( 'tools/arsed.conf', '/usr/local/etc/arsed.conf', '/etc/arsed.conf' );
+my @upd_q;
+
+my $is;
+my $net;
+
+my $start_time = time();
+
+my $alert_me = "couldn't be $me";
+
+sub is_config()
+{
+    $is = new Ham::APRS::IS($c->{'aprsis_server'}, $c->{'callsign'},
+        'appid' => "$me $VERSION",
+        'passcode' => $c->{'passcode'},
+        'filter' => 't/m');
+    if (!$is) {
+        warn "Failed to create IS server object: " . $is->{'error'} . "\n";
+        return;
+    }
+}
+
+sub is_connect()
+{
+    my $ret = $is->connect('retryuntil' => 2);
+    if (!$ret) {
+        warn "Failed to connect to IS server: " . $is->{'error'} . "\n";
+        return;
+    }
+    
+    warn "IS: connected\n";
+}
+
+sub push_updates()
+{
+    if (!$is) {
+        @upd_q = ();
+        return;
+    }
+    
+    if (!$is->connected()) {
+        is_connect();
+    }
+    
+    if (!$is->connected()) {
+        @upd_q = ();
+        return;
+    }
+    
+    foreach my $ent (@upd_q) {
+        my $aprs_position = Ham::APRS::FAP::make_position(
+            $ent->{'latitude'},
+            $ent->{'longitude'},
+            -1, # speed
+            -1, # course
+            -10000, # altitude
+            '/[', # symbol
+            1, # compression
+            0); # no ambiguity
+        #print "$aprs_position\n";
+        
+        my $packet = sprintf('%s>APTR01:!%s', $ent->{'callsign'}, $aprs_position);
+        #print "$packet\n";
+        my $ok = $is->sendline($packet);
+        if (!$ok) {
+            $is->disconnect();
+        }
+    }
+    
+    @upd_q = ();
+}
+
+sub do_aprsis_beacon($)
+{
+    my($rx) = @_;
+    
+    my $reg = $rx->{'registry'};
+    
+    $reg->{'last_aprsis'} = time();
+    $reg->{'last_aprsis_lat'} = $rx->{'latitude'};
+    $reg->{'last_aprsis_lng'} = $rx->{'longitude'};
+    
+    warn "$me: beaconing position of " . $reg->{'id'} . ": " . $reg->{'callsign'} . "\n";
+    
+    return 1;
+}
+
+sub consider_aprsis_beacon($)
+{
+    my($rx) = @_;
+    
+    my $reg = $rx->{'registry'};
+    
+    # if never beaconed before, do it now
+    return do_aprsis_beacon($rx) if (!defined $reg->{'last_aprsis'});
+    
+    # if very often, don't do it now
+    my $since_last = time() - $reg->{'last_aprsis'};
+    return 0 if ($since_last < 30);
+    
+    if (defined $reg->{'last_aprsis_lat'}) {
+        my $dist = Ham::APRS::FAP::distance(
+            $reg->{'last_aprsis_lng'}, $reg->{'last_aprsis_lat'},
+            $rx->{'longitude'}, $rx->{'latitude'});
+        if ($dist < 0.05) {
+            if ($since_last < 15*60) {
+                return 0;
+            }
+            return do_aprsis_beacon($rx);
+        } else {
+            return do_aprsis_beacon($rx);
+        }
+    }
+    
+    return do_aprsis_beacon($rx);
+}
+
+sub process_is_input($)
+{
+    my($l) = @_;
+    
+    my %packetdata;
+    my $retval = Ham::APRS::FAP::parseaprs($l, \%packetdata);
+    
+    return if (!$retval);
+    if (defined $packetdata{'type'} && $packetdata{'type'} eq 'message') {
+        process_is_message(\%packetdata);
+    }
+}
+
+sub make_ack($$$)
+{
+    my($src, $dst, $id) = @_;
+    return sprintf("%s>APRS::%-9s:ack%s", $src, $dst, $id);
+}
+
+my $aprs_msg_cache = new TRBO::DupeCache();
+$aprs_msg_cache->init();
+
+sub process_is_message($)
+{
+    my($p) = @_;
+    
+    #print "incoming IS message: " . Dumper($p);
+    
+    my $radio = $net->registry_find_call($p->{'destination'});
+    return if (!defined $radio);
+    
+    my $cacheid;
+    if (defined $p->{'messageid'}) {
+        $is->sendline(make_ack($p->{'destination'}, $p->{'srccallsign'}, $p->{'messageid'}));
+        $cacheid = md5_hex($p->{'srccallsign'} . '_' . $p->{'destination'} . '_' . $p->{'messageid'});
+    } else {
+        $cacheid = md5_hex($p->{'srccallsign'} . '_' . $p->{'destination'} . '_' . $p->{'message'});
+    }
+    
+    if ($aprs_msg_cache->add($cacheid)) {
+        warn "APRS-IS message gateway dupe ignored: IS>TRBO "
+            . $p->{'srccallsign'} . '>' . $p->{'destination'} . " " . $radio->{'id'}
+            . ((defined $p->{'messageid'}) ? '(id ' . $p->{'messageid'} . ')' : '')
+            . ": " . $p->{'message'} . "\n";
+        return;
+    }
+    
+    warn "APRS-IS message gateway: IS>TRBO "
+        . $p->{'srccallsign'} . '>' . $p->{'destination'} . " " . $radio->{'id'}
+        . ": " . $p->{'message'} . "\n";
+    
+    $net->{'tms'}->queue_msg($radio->{'id'}, 'APRS ' . $p->{'srccallsign'} . ': ' . $p->{'message'});
+}
+
+sub dump_state()
+{
+    return if (!defined $c->{'state_dump'});
+    
+    my %state = (
+        'time' => time(),
+        'uptime' => time() - $start_time,
+        'ars_clients' => $net->{'ars_clients'},
+        'ars_clients_here' => $net->{'ars_clients_here'},
+        'bytes_rx' => $net->{'bytes_rx'},
+        'bytes_tx' => $net->{'ars'}->{'bytes_tx'} + $net->{'tms'}->{'bytes_tx'} + $net->{'loc'}->{'bytes_tx'},
+        'pkts_rx' => $net->{'pkts_rx'},
+        'pkts_tx' => $net->{'ars'}->{'pkts_tx'} + $net->{'tms'}->{'pkts_tx'} + $net->{'loc'}->{'pkts_tx'},
+        'registry' => $net->{'registry'}
+    );
+    
+    my $tmpf = $c->{'state_dump'} . '.tmp';
+    if (!open(F, ">$tmpf")) {
+        warn "$alert_me: could not open $tmpf for writing: $!\n";
+        return;
+    }
+    
+    if (!print F to_json(\%state)) {
+        warn "$alert_me: could not write to $tmpf: $!\n";
+        close(F);
+        return;
+    }
+    
+    if (!close(F)) {
+        warn "$alert_me: could not close $tmpf after writing: $!\n";
+        return;
+    }
+    
+    if (!rename($tmpf, $c->{'state_dump'})) {
+        warn "$alert_me: could not rename $tmpf to " . $c->{'state_dump'} . ": $!\n";
+        return;
+    }
+}
+
+sub reload_state()
+{
+    return if (!defined $c->{'state_dump'});
+    
+    if (!open(F, $c->{'state_dump'})) {
+        warn "$alert_me: could not open state dump " . $c->{'state_dump'} . " for reading: $!\n";
+        return;
+    }
+    
+    my $l = <F>;
+    warn Dumper($l);
+    my $state = from_json($l);
+    warn Dumper($state);
+    
+    close(F);
+    
+    return if (!defined $state->{'registry'});
+    
+    my $reg = $net->{'registry'};
+    foreach my $radio (values %{ $state->{'registry'} }) {
+        if (!defined $reg->{$radio->{'id'}}) {
+            warn "reload_state: radio " . $radio->{'id'} . " not configured, ignoring\n";
+            next;
+        }
+        warn "reload_state: reloading radio " . $radio->{'id'} . "\n";
+        for my $k ('last_poll_tx', 'last_poll_rx', 'first_heard', 'last_heard', 'away_reason', 'state', 'heard_what') {
+            $reg->{$radio->{'id'}}{$k} = $radio->{$k};
+        }
+    }
+    
+    $net->registry_scan(1);
+}
+
+sub cmd_aprs($$)
+{
+    my($rx, $args) = @_;
+    #warn "APRS cmd\n";
+    
+    return if (!$is);
+    
+    my($cmd, $dst, @words) = @$args;
+    
+    my $msg = join(' ', @words);
+    
+    my $aprsmsg = sprintf("%s>APRS::%-9s:%s", $rx->{'registry'}->{'callsign'}, uc($dst), $msg);
+    #print "$aprsmsg\n";
+    warn "APRS-IS message gateway: TRBO>IS "
+        . $rx->{'registry'}->{'callsign'} . '>' . $dst
+        . ": $msg\n";
+    my $ok = $is->sendline($aprsmsg);
+    if (!$ok) {
+        $is->disconnect();
+    }
+}
+
+sub cmd_who($$)
+{
+    my($rx) = @_;
+    
+    my @here;
+    foreach my $radio (values %{ $net->{'registry'} }) {
+        #warn Dumper($radio);
+        if ($radio->{'state'} eq 'here') {
+            push @here, (defined $radio->{'callsign'}) ? $radio->{'callsign'} : $radio->{'id'};
+        }
+    }
+    
+    $net->{'tms'}->queue_msg($rx->{'src_id'}, 'Available: ' . join(' ', @here));
+}
+
+my %cmds = (
+    'who' => \&cmd_who,
+    'w' => \&cmd_who,
+);
+
+sub process_msg($)
+{
+    my($rx) = @_;
+    
+    if ($rx->{'text'} =~ /^\s*([a-z]+)\s*/i) {
+        my($cmd) = lc($1);
+        
+        warn "process_msg cmd '$cmd'\n";
+        
+        my $t = $rx->{'text'};
+        $t =~ s/^\s+//;
+        $t =~ s/\s+$//;
+        $t =~ s/\s+/ /g;
+        my @args = split(' ', $t);
+        
+        if (defined $cmds{$cmd}) {
+            $cmds{$cmd}($rx, \@args);
+            return;
+        }
+    } else {
+        warn "process_msg cmd no match\n";
+    }
+    
+    $net->{'tms'}->queue_msg($rx->{'src_id'}, 'ARS-E Commands: Who Aprs');
+}
+
+#### MAIN #################
+
+# select which config file is present
+my $cfgfile;
+foreach my $f (@cfgfiles) {
+    if ( -f $f ) {
+        $cfgfile = $f;
+        last;
+    }
+}
+
+if (!defined $cfgfile) {
+    die "$alert_me: Could not find a configuration file from: @cfgfiles\n";
+}
+
+warn "$me: Reading YAML configuration from $cfgfile ...\n";
+my $yaml = YAML::Tiny->new;
+my $conf = YAML::Tiny->read($cfgfile);
+$c = shift @$conf;
+
+#warn "Config: " . Dumper($c);
+
+$net = TRBO::NET->new(
+    'ars_port' => $c->{'ars_port'},
+    'loc_port' => $c->{'loc_port'},
+    'tms_port' => $c->{'tms_port'},
+    'debug' => 1,
+    'cai_net' => $c->{'cai_network'},
+);
+
+
+# configure radios
+while (my $radio = shift @$conf) {
+    $net->configure_radio($radio);
+}
+reload_state();
+
+if (defined $c->{'aprsis_server'}) {
+    is_config();
+    # configure APRS commands
+    $cmds{'a'} = $cmds{'aprs'} = \&cmd_aprs;
+}
+
+while (1) {
+    if ($is) {
+        if (!$is->connected()) {
+            is_connect();
+        }
+        
+        while (my $is_rx = $is->getline(1)) {
+            #print "IS: $is_rx\n";
+            next if ($is_rx =~ /^#/);
+            process_is_input($is_rx);
+        }
+    }
+    
+    my $rx = $net->receive();
+    if (!$rx) {
+        $net->registry_scan();
+        $net->{'tms'}->queue_run();
+        $aprs_msg_cache->scan(300);
+        dump_state();
+        next;
+    }
+    #warn Dumper($rx);
+    
+    if (!defined $rx->{'class'}) {
+        # ouch!
+        
+    } elsif ($rx->{'class'} eq 'ars') {
+        if ($rx->{'msg'} eq 'hello') {
+            # could have some policy here on what to accept...
+            
+            # register radio internally and start polling it
+            $net->register_radio($rx);
+            if ($c->{'gps_req_interval'}) {
+                $net->{'loc'}->request_locs($rx->{'src_id'}, $c->{'gps_req_interval'} - 10 + int(rand(30)));
+            } else {
+                $net->{'loc'}->request_no_locs($rx->{'src_id'});
+            }
+        }
+        
+    } elsif ($rx->{'class'} eq 'loc') {
+        if ($rx->{'msg'} eq 'loc' && defined $rx->{'latitude'}) {
+            if (defined $rx->{'registry'} && defined $rx->{'registry'}->{'callsign'} && consider_aprsis_beacon($rx)) {
+                my %h = (
+                    'latitude' => $rx->{'latitude'},
+                    'longitude' => $rx->{'longitude'},
+                    'callsign' => $rx->{'registry'}->{'callsign'},
+                );
+                push @upd_q, \%h;
+                push_updates();
+            }
+        }
+        
+    } elsif ($rx->{'class'} eq 'tms') {
+        if ($rx->{'msg'} eq 'msg') {
+            process_msg($rx);
+        }
+    }
+}
+

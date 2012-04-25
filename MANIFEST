@@ -1,0 +1,20 @@
+Makefile.PL
+MANIFEST
+Common.pm
+NET.pm
+LOC.pm
+ARS.pm
+TMS.pm
+DupeCache.pm
+README
+LICENSE
+tools/arsed
+tools/arsed.conf.example
+web/state.php
+web/trbo.css
+t/00load-module.t
+t/01pod.t
+t/02pod-coverage.t
+t/10ars-decode.t
+t/20loc-decode.t
+META.yml                                 Module meta-data (added by MakeMaker)
