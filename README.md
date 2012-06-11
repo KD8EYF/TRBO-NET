@@ -5,6 +5,8 @@ http://youtu.be/85EdiW7mbXQ
 
 __________________________________
 ARCH LINUX INSTALL INSTRUCTIONS
+
+
 cpan 
 
 
@@ -13,5 +15,8 @@ cpan
 ___________________________________
 DEBIAN SQUEEZE INSTALL INSTRUCTIONS
 
+
 cd /usr/src/TRBO-NET/scripts
+
+
 ./install.sh
