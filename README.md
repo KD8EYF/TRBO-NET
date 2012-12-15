@@ -5,8 +5,8 @@ Demo Video: http://youtu.be/85EdiW7mbXQ
 DEBIAN SQUEEZE INSTALL INSTRUCTIONS  
 
 Update system and install prereqs
--- sudo apt-get update  
--- sudo apt-get install openssh-server git libyaml-tiny-perl libdate-calc-perl libjson-perl  libtest-pod-coverage-perl  
+- sudo apt-get update  
+- sudo apt-get install openssh-server git libyaml-tiny-perl libdate-calc-perl libjson-perl  libtest-pod-coverage-perl  
 
 mkdir ~/src  
 cd ~/src  
