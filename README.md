@@ -26,4 +26,12 @@ make test
 make  
 sudo make install  
 
+Edit the config file by hand to include the DMR radio users you want to listen for.  
+the mi5 network config is include as an example of what we did in michigan:  
+
+vi configs/arsed.mi5.conf  
+cp configs/arsed.mi5.conf /etc/arsed.conf  
+
+Run the Program:  
+arsed 
 
