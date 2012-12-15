@@ -1,15 +1,15 @@
 ARS-E DAEMON  
 AUTOMATIC REGISTRATION SERVICE EXTENDABLE  
-DEMO VIDEO HERE  
-http://youtu.be/85EdiW7mbXQ  
+Demo Video: http://youtu.be/85EdiW7mbXQ  
 
 DEBIAN SQUEEZE INSTALL INSTRUCTIONS  
 
-sudo apt-get update  
-sudo apt-get install openssh-server git libyaml-tiny-perl libdate-calc-perl libjson-perl  libtest-pod-coverage-perl  
+Update system and install prereqs
+-- sudo apt-get update  
+-- sudo apt-get install openssh-server git libyaml-tiny-perl libdate-calc-perl libjson-perl  libtest-pod-coverage-perl  
+
 mkdir ~/src  
 cd ~/src  
-
 wget http://search.cpan.org/CPAN/authors/id/H/HE/HESSU/Ham-APRS-FAP-1.18.tar.gz  
 tar -zxvf ./Ham-APRS-FAP-1.18.tar.gz  
 cd Ham-APRS-FAP-1.18  
