@@ -35,3 +35,9 @@ cp configs/arsed.mi5.conf /etc/arsed.conf
 Run the Program:  
 arsed 
 
+Optional: Install Apache webserver  
+apt-get install apache2 libapache2-mod-php5  
+cp ~/src/TRBO-NET/web/* /var/www/  
+
+View the WebStatus  
+http:/[IP ADDRESS OF SERVER]/state.php  
