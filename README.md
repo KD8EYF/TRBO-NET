@@ -5,8 +5,8 @@
 [OH2CH - Finland](http://oh2ch.org/trbo/state.php)  
 
 ###Installation Examples / Demos
-[W8FSM Rasberry Pi Video](http://youtu.be/85EdiW7mbXQ  ) *NEW*  
-[KD8EYF Video](http://youtu.be/85EdiW7mbXQ  )  
+[W8FSM Rasberry Pi Video](http://youtu.be/j7ItqeQou4k) *NEW*  
+[KD8EYF Video](http://youtu.be/85EdiW7mbXQ)  
 [KD8EYF Beagle Bone Control Station](http://i.imgur.com/9Uu0T.jpg)  
 
 
