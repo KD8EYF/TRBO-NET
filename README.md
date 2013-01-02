@@ -6,36 +6,40 @@ Assumes a Clean install of Debian Squeeze
 
 
 Update system and install prereqs
-- sudo apt-get update  
-- sudo apt-get install openssh-server git libyaml-tiny-perl libdate-calc-perl libjson-perl  libtest-pod-coverage-perl  
+```
+sudo apt-get update  
+sudo apt-get install openssh-server git libyaml-tiny-perl libdate-calc-perl libjson-perl  libtest-pod-coverage-perl  
+```
 
 Download and install the Ham APRS module
-
-- mkdir ~/src  
-- cd ~/src  
-- wget http://search.cpan.org/CPAN/authors/id/H/HE/HESSU/Ham-APRS-FAP-1.18.tar.gz  
-- tar -zxvf ./Ham-APRS-FAP-1.18.tar.gz  
-- cd Ham-APRS-FAP-1.18  
-- perl Makefile.PL  
-- make  
-- sudo make install 
-- cd ..  
-
+```
+mkdir ~/src  
+cd ~/src  
+wget http://search.cpan.org/CPAN/authors/id/H/HE/HESSU/Ham-APRS-FAP-1.18.tar.gz  
+tar -zxvf ./Ham-APRS-FAP-1.18.tar.gz  
+cd Ham-APRS-FAP-1.18  
+perl Makefile.PL  
+make  
+sudo make install 
+cd ..  
+```
 Install the TRBO-NET arsed program  
 
-- git clone https://github.com/KD8EYF/TRBO-NET.git  
-- cd TRBO-NET/  
-- perl Makefile.PL  
-- make test  
-- make  
-- sudo make install  
+```
+git clone https://github.com/KD8EYF/TRBO-NET.git  
+cd TRBO-NET/  
+perl Makefile.PL  
+make  
+sudo make install  
+```
 
 Edit the config file by hand to include the DMR radio users you want to listen for.  
 the mi5 network config is include as an example of what we did in michigan:  
 
-- vi configs/arsed.mi5.conf  
-- cp configs/arsed.mi5.conf /etc/arsed.conf  
-
+```
+cp configs/arsed.mi5.conf /etc/arsed.conf  
+vi configs/arsed.mi5.conf  
+```
 
 Reccommend static networking config in /etc/network/interfaces  
 Assuming Radio IP of 192.168.10.1 and PC ip of 192.168.10.2
@@ -48,19 +52,24 @@ Assuming Radio IP of 192.168.10.1 and PC ip of 192.168.10.2
 
 RUN THE PROGRAM
 
-- arsed 
+```
+arsed 
+```
 
 Install Apache webserver  
-- apt-get install apache2 libapache2-mod-php5  
-- cp ~/src/TRBO-NET/web/* /var/www/  
+```
+apt-get install apache2 libapache2-mod-php5  
+cp ~/src/TRBO-NET/web/* /var/www/  
+```
 
 connect turbo radio to Linux box using USB  
 Device should enumerate and automatically create a network interface. If not check kernel support  
 
-send text message to gateway radio's ID: it has 'who' command to list registered radios ('w' for short).  
-send 'aprs <callsign> <message>' to send text message to APRS-IS  
-once radio starts sending positions, they will be sent to the APRS-IS too  
+-- send text message to gateway radio's ID: it has 'who' command to list registered radios ('w' for short).  
+-- send 'aprs <callsign> <message>' to send text message to APRS-IS  
+
+once radio starts sending positions, they will be sent to the APRS-IS too  !
 
 View the WebStatus  
-- http:/[IP ADDRESS OF SERVER]/state.php  
+-- http:/[IP ADDRESS OF SERVER]/state.php  
 
