@@ -74,6 +74,8 @@ cp ~/src/TRBO-NET/web/* /var/www/
 connect turbo radio to Linux box using USB  
 Device should enumerate and automatically create a network interface. If not check kernel support  
 
+
+###How To Use
 - send text message to gateway radio's ID: it has 'who' command to list registered radios ('w' for short).  
 - send 'aprs <callsign> <message>' to send text message to APRS-IS  
 
