@@ -87,4 +87,4 @@ View the WebStatus
 - http:/[IP ADDRESS OF SERVER]/state.php  
 
 ##Support
-Please Feel free to email me, i will be more then happy to get your installation configured.
+Please Feel free to email me, i will be more then happy to help get your installation configured.
