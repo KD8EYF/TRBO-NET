@@ -36,7 +36,17 @@ the mi5 network config is include as an example of what we did in michigan:
 - vi configs/arsed.mi5.conf  
 - cp configs/arsed.mi5.conf /etc/arsed.conf  
 
-Run the Program  
+
+Reccommend static networking config in /etc/network/interfaces  
+Assuming Radio IP of 192.168.10.1 and PC ip of 192.168.10.2
+
+- iface usb0 inet static                                                                                                                  x~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-   address 192.168.10.2                                                                                                            x~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-   netmask 255.255.255.0                                                                                                           x~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-   up route add -net 12.0.0.0/8 gw 192.168.10.1                                                                                    x~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-   down route del -net 12.0.0.0/8 gw 192.168.10.1
+
+RUN THE PROGRAM
 
 - arsed 
 
@@ -46,11 +56,6 @@ Install Apache webserver
 
 connect turbo radio to Linux box using USB  
 Device should enumerate and automatically create a network interface. If not check kernel support  
-
-- dhclient usb0  
-- route delete default gw 192.168.10.1  
-- route add -net 10.0.0.0 10.0.0.0/8 gw 192.168.10.2
-- ping 192.168.10.2
 
 send text message to gateway radio's ID: it has 'who' command to list registered radios ('w' for short).  
 send 'aprs <callsign> <message>' to send text message to APRS-IS  
