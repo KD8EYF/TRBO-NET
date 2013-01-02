@@ -1,13 +1,15 @@
 ##ARS-E DAEMON AUTOMATIC REGISTRATION SERVICE EXTENDABLE  
 
+###Running Installations  
+[Mi5 Network ](http://ars.moses.bz/)  
+[OH2CH - Finland](http://oh2ch.org/trbo/state.php)  
+
 ###Installation Examples / Demos
 [W8FSM Rasberry Pi Video](http://youtu.be/85EdiW7mbXQ  ) *NEW*  
 [KD8EYF Video](http://youtu.be/85EdiW7mbXQ  )  
 [KD8EYF Beagle Bone Control Station](http://i.imgur.com/9Uu0T.jpg)  
 
-###Running Installations  
-[Mi5 Network ](http://ars.moses.bz/)  
-[OH2CH - Finland](http://oh2ch.org/trbo/state.php)  
+
 
 
 ##Install Instructions  
