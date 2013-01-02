@@ -1,8 +1,16 @@
 ARS-E DAEMON AUTOMATIC REGISTRATION SERVICE EXTENDABLE  
-Demo Video: http://youtu.be/85EdiW7mbXQ  
+
+[W8FSM Video](http://youtu.be/85EdiW7mbXQ  ) *NEW*
+[KD8EYF Video](http://youtu.be/85EdiW7mbXQ  )
+[KD8EYF Control Station](http://i.imgur.com/9Uu0T.jpg)
+
+Running Installations
+[Mi5 Network ](http://ars.moses.bz/)
+[OH2CH - Finland](http://oh2ch.org/trbo/state.php)
+
 
 Install Instructions  
-Assumes a Clean install of Debian Squeeze  
+Assumes a Clean install of Debian Squeeze / Wheezy
 
 
 Update system and install prereqs
