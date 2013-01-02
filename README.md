@@ -1,8 +1,8 @@
 ARS-E DAEMON AUTOMATIC REGISTRATION SERVICE EXTENDABLE  
 
-[W8FSM Video](http://youtu.be/85EdiW7mbXQ  ) *NEW*
-[KD8EYF Video](http://youtu.be/85EdiW7mbXQ  )
-[KD8EYF Control Station](http://i.imgur.com/9Uu0T.jpg)
+[W8FSM Video](http://youtu.be/85EdiW7mbXQ  ) *NEW*  
+[KD8EYF Video](http://youtu.be/85EdiW7mbXQ  )  
+[KD8EYF Control Station](http://i.imgur.com/9Uu0T.jpg)  
 
 Running Installations
 [Mi5 Network ](http://ars.moses.bz/)
