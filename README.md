@@ -10,7 +10,7 @@
 [OH2CH - Finland](http://oh2ch.org/trbo/state.php)  
 
 
-Install Instructions  
+##Install Instructions  
 Assumes a Clean install of Debian Squeeze / Wheezy
 
 
