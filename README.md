@@ -86,3 +86,5 @@ once radio starts sending positions, they will be sent to the APRS-IS too  !
 View the WebStatus  
 - http:/[IP ADDRESS OF SERVER]/state.php  
 
+##Support
+Please Feel free to email me, i will be more then happy to get your installation configured.
