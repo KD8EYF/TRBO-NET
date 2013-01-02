@@ -44,10 +44,10 @@ vi configs/arsed.mi5.conf
 Reccommend static networking config in /etc/network/interfaces  
 Assuming Radio IP of 192.168.10.1 and PC ip of 192.168.10.2
 
-    iface usb0 inet static                                                                                                                  x~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        address 192.168.10.2                                                                                                            x~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        netmask 255.255.255.0                                                                                                           x~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        up route add -net 12.0.0.0/8 gw 192.168.10.1                                                                                    x~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    iface usb0 inet static
+        address 192.168.10.2
+        netmask 255.255.255.0
+        up route add -net 12.0.0.0/8 gw 192.168.10.1
         down route del -net 12.0.0.0/8 gw 192.168.10.1
 
 RUN THE PROGRAM
