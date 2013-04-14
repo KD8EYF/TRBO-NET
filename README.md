@@ -5,12 +5,22 @@
 [OH2CH - Finland](http://oh2ch.org/trbo/state.php)  
 
 ###Installation Examples / Demos
-[W8FSM Rasberry Pi Video](http://youtu.be/j7ItqeQou4k) *NEW*  
+[W8FSM Rasberry Pi Video](http://youtu.be/j7ItqeQou4k)
 [KD8EYF Video](http://youtu.be/85EdiW7mbXQ)  
 [KD8EYF Beagle Bone Control Station](http://i.imgur.com/9Uu0T.jpg)  
 
 
+##2013-04-14 Updates
+  Created 'updates' branch with following updates. Will test and merge to master. 
+  Thanks to anonymous  
 
+* fix tx msg charset encode
+* can send group message
+* fix gps negative lat lon, maybe work evrywhere now
+* allow configure station symbol for every station
+* reverse GeoCode address with "Who callsign" command
+* send msgs given in files by other program
+* less extra channel loading, do set ars_ping_interval to 0
 
 ##Install Instructions  
 Assumes a Clean install of Debian Squeeze / Wheezy
