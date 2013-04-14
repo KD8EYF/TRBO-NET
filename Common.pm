@@ -13,7 +13,7 @@ TRBO::NET - A trbo parser
 
 =cut
 
-our $VERSION = "1.2";
+our $VERSION = "1.3";
 
 use strict;
 use warnings;
@@ -90,10 +90,14 @@ sub _clear_errors($)
 #    Logg tools
 #
 
-sub log_time()
+sub log_time
 {
-    my(@tf) = gmtime();
-    return sprintf("%04d.%02d.%02d %02d:%02d:%02d",
+    my($t) = @_;
+    
+    $t = time() if (!defined $t);
+    
+    my(@tf) = gmtime($t);
+    return sprintf("%04d-%02d-%02d %02d:%02d:%02d",
         $tf[5]+1900, $tf[4]+1, $tf[3], $tf[2], $tf[1], $tf[0]);
 }
 
@@ -254,11 +258,13 @@ which can pass to sendmsg() direct.
 
 =cut
 
-sub _make_addr($$)
+sub _make_addr($$;$)
 {
-    my($self, $id) = @_;
+    my($self, $id, $group_net) = @_;
     
-    my $host = $self->{'config'}->{'cai_net'} . '.' . (($id >> 16) & 0xff) .'.' . (($id >> 8) & 0xff) . '.' . ($id & 0xff);
+    my $host = (defined $group_net && ($group_net)) ? $self->{'config'}->{'cai_group_net'} : $self->{'config'}->{'cai_net'};
+    
+    $host .= '.' . (($id >> 16) & 0xff) .'.' . (($id >> 8) & 0xff) . '.' . ($id & 0xff);
     my $hisiaddr = inet_aton($host);
     #$self->_debug("_make_addr $id: $host " . $self->{'config'}->{'port'});
     my $sin = sockaddr_in($self->{'config'}->{'port'}, $hisiaddr);
@@ -276,15 +282,15 @@ Send binary message UDP to radio ID.
 
 =cut
 
-sub _send($$$;$)
+sub _send($$$;$$)
 {
-    my($self, $id, $data, $prefix) = @_;
+    my($self, $id, $data, $prefix, $group_net) = @_;
     
     my $out = $self->_pack($data, $prefix);
     
     $self->_debug("_send to $id:" . $self->{'config'}->{'port'} . ": " . _hex_dump($out));
     
-    $self->{'sock'}->send($out, 0, $self->_make_addr($id));
+    $self->{'sock'}->send($out, 0, $self->_make_addr($id, $group_net));
     
     $self->{'pkts_tx'} += 1;
     $self->{'bytes_tx'} += length($out);
