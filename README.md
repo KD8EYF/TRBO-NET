@@ -1,7 +1,6 @@
 ##ARS-E DAEMON AUTOMATIC REGISTRATION SERVICE EXTENDABLE  
 
 ###Running Installations  
-[Mi5 Network ](http://ars.moses.bz/)  
 [OH2CH - Finland](http://oh2ch.org/trbo/state.php)  
 
 ###Installation Examples / Demos
