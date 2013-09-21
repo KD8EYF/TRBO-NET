@@ -58,8 +58,8 @@ sub new
     #print "settings: " . Dumper(\%h);
     
     my %defaults = (
-        'registry_poll_interval' => 150,
-        'registry_timeout' => 340,
+        'registry_poll_interval' => 900,
+        'registry_timeout' => 1800,
         'tms_init_retry_interval' => 10,
         'tms_max_retry_interval' => 20*60,
         'tms_queue_max_age' => 2*3600,
