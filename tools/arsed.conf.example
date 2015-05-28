@@ -54,13 +54,15 @@ tms_port:		4007
 loc_port:		4001
 
 # timers, set in seconds:
-# how often to 'ping' station if it has not been heard lately
-ars_ping_interval:	160
 # ARS timeout: when to consider station as being away from network
-ars_timeout:		370
+# (radio sends "hello" every 30 minutes to reset this timer)
+ars_timeout:		1900
+# how often to 'ping' station if it has not been heard lately
+# (disabling is good idea, reduce network traffic and channel busy)
+ars_ping_interval:	0
 # GPS location request interval, set to 0 if you not want receive
 # GPS data from radios
-gps_req_interval:	120
+gps_req_interval:	240
 
 # some thought on above:
 #
@@ -79,7 +81,7 @@ gps_req_interval:	120
 # How old messages (in seconds) are dropped from TX queue
 tms_queue_max_age:		3600
 # Initial retransmission interval (too low if duplicates emerge!)
-tms_init_retry_interval:	30
+tms_init_retry_interval:	90
 
 # Radios follow, in following format (remove # comment sign):
 # The callsign will be used for status display and APRS gateway
@@ -91,7 +93,9 @@ tms_init_retry_interval:	30
 #id: 12345
 #callsign: N0CALL-TR
 #
+# mobile example
 #---
 #id: 12346
-#callsign: N1CALL-TR
+#callsign: N1CALL-M
+#symbol: D>
 #

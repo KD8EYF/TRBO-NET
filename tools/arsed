@@ -9,10 +9,18 @@ use Data::Dumper;
 use YAML::Tiny;
 use Digest::MD5 qw(md5_hex);
 use JSON;
+use POSIX;
 use Ham::APRS::IS;
 use Ham::APRS::FAP;
 use TRBO::NET;
+use TRBO::Common;
 use TRBO::DupeCache;
+
+# used to access the Google gecoding API
+use LWP;
+use LWP::UserAgent;
+use HTTP::Request::Common;
+use URI::Escape qw(uri_escape);
 
 my $me = 'arsed';
 my $VERSION = '1.00';
@@ -27,6 +35,106 @@ my $net;
 my $start_time = time();
 
 my $alert_me = "couldn't be $me";
+
+sub dur_str($)
+{
+    my($s) = @_;
+    
+    my $str = '';
+    
+    if ($s < 0) {
+        $str = "-";
+        $s *= -1;
+    }
+    
+    my $origs = $s;
+    
+    if ($s < 1) {
+        $str .= "0s";
+        return $str;
+    }
+    
+    if ($s >= 24 * 60 * 60) {
+        my $d = POSIX::floor($s / (24 * 60 * 60));
+        $s -= $d * 24 * 60 * 60;
+        $str .= $d . 'd ';
+    }
+    
+    if ($s >= 60 * 60) {
+        my $d = POSIX::floor($s / (60 * 60));
+        $s -= $d * 60 * 60;
+        $str .= $d . "h";
+    }
+    
+    if ($s >= 60) {
+        my $d = POSIX::floor($s / 60);
+        $s -= $d * 60;
+        $str .= $d . "m";
+    }
+    
+    if ($s >= 1) {
+        if ($origs < 60*60) {
+            $str .= POSIX::floor($s) . "s";
+        }
+    }
+    
+    return $str;
+}
+
+sub reverse_geocode($$)
+{
+    my($lat, $lng) = @_;
+    
+    my $ua = LWP::UserAgent->new;
+    $ua->agent(
+        agent => "$me/$VERSION",
+        timeout => 5,
+        max_redirect => 0,
+    );
+    
+    my $url = "http://maps.googleapis.com/maps/api/geocode/json?latlng=$lat,$lng&sensor=true";
+    
+    my $req = HTTP::Request->new(GET => $url);
+    my $res = $ua->simple_request($req);
+    
+    if ($res->status_line !~ /^(\d+)\s+(.*)$/) {
+        warn "reverse_geocode: HTTP status line could not be parsed for " . $url . ": " . $res->status_line;
+        return;
+    }
+                                                                    
+    my($status_code, $status_message) = ($1, $2);
+    
+    if ($status_code ne 200) {
+        warn "reverse_geocode: HTTP error $status_code: $status_message - " . $url;
+        return;
+    }
+    
+    if ($res->header('Content-Type') !~ /application\/json/) {
+        warn "reverse_geocode: Server returned wrong content type (should be application/json): " . $res->header('Content-Type') . " - " . $url;
+        return;
+    }
+    
+    my $state = from_json($res->content);
+    warn Dumper($state);
+    
+    return if (!defined $state);
+    return if ($state->{'status'} ne 'OK');
+    return if (!defined $state->{'results'});
+    my @res = @{ $state->{'results'} };
+    $res = shift @res;
+    return if (!defined $res->{'formatted_address'});
+    
+    return $res->{'formatted_address'};
+}
+
+sub status_msg($)
+{
+    my($s) = @_;
+    
+    if ($net && $c->{'arse_status_group'}) {
+        $net->{'tms'}->queue_msg($c->{'arse_status_group'}, $s, 1);
+    }
+}
 
 sub is_config()
 {
@@ -74,7 +182,7 @@ sub push_updates()
             -1, # speed
             -1, # course
             -10000, # altitude
-            '/[', # symbol
+            (defined $ent->{'symbol'}) ? $ent->{'symbol'} : '/[', # symbol
             1, # compression
             0); # no ambiguity
         #print "$aprs_position\n";
@@ -111,11 +219,19 @@ sub consider_aprsis_beacon($)
     
     my $reg = $rx->{'registry'};
     
+    $reg->{'last_lat'} = $rx->{'latitude'};
+    $reg->{'last_lng'} = $rx->{'longitude'};
+    
     # if never beaconed before, do it now
     return do_aprsis_beacon($rx) if (!defined $reg->{'last_aprsis'});
     
     # if very often, don't do it now
     my $since_last = time() - $reg->{'last_aprsis'};
+    if ($since_last < 0) {
+        # clock has jumped backwards, reset the timer!
+        $reg->{'last_aprsis'} = time();
+        return 0;
+    }
     return 0 if ($since_last < 30);
     
     if (defined $reg->{'last_aprsis_lat'}) {
@@ -198,6 +314,13 @@ sub dump_state()
         'uptime' => time() - $start_time,
         'ars_clients' => $net->{'ars_clients'},
         'ars_clients_here' => $net->{'ars_clients_here'},
+        'tms_q_len' => $net->{'tms'}->{'queue_length'},
+        'tms_msg_rx' => $net->{'tms'}->{'msg_rx'},
+        'tms_msg_rx_dupe' => $net->{'tms'}->{'msg_rx_dupe'},
+        'tms_msg_tx' => $net->{'tms'}->{'msg_tx'},
+        'tms_msg_tx_ok' => $net->{'tms'}->{'msg_tx_ok'},
+        'tms_msg_tx_group' => $net->{'tms'}->{'msg_tx_group'},
+        'tms_msg_tx_drop' => $net->{'tms'}->{'msg_tx_drop'},
         'bytes_rx' => $net->{'bytes_rx'},
         'bytes_tx' => $net->{'ars'}->{'bytes_tx'} + $net->{'tms'}->{'bytes_tx'} + $net->{'loc'}->{'bytes_tx'},
         'pkts_rx' => $net->{'pkts_rx'},
@@ -271,6 +394,12 @@ sub cmd_aprs($$)
     my($cmd, $dst, @words) = @$args;
     
     my $msg = join(' ', @words);
+    if (!defined $dst || $dst eq '' || $msg eq '') {
+        $net->{'tms'}->queue_msg($rx->{'src_id'}, 'Usage: Aprs <callsign> <message>');
+        return;
+    }
+    
+    $dst = uc($dst);
     
     my $aprsmsg = sprintf("%s>APRS::%-9s:%s", $rx->{'registry'}->{'callsign'}, uc($dst), $msg);
     #print "$aprsmsg\n";
@@ -285,17 +414,75 @@ sub cmd_aprs($$)
 
 sub cmd_who($$)
 {
-    my($rx) = @_;
+    my($rx, $args) = @_;
+    
+    my($cmd, $dst) = @$args;
+    
+    my $now = time();
+    
+    if (defined $dst) {
+        my @matches;
+        my $match;
+        foreach my $radio (values %{ $net->{'registry'} }) {
+            my $s = (defined $radio->{'callsign'}) ? $radio->{'callsign'} : $radio->{'id'};
+            if (index($radio->{'id'}, $dst) >= 0) {
+                $match = $radio;
+                push @matches, $s;
+                next;
+            }
+            if (defined $radio->{'callsign'} && index(uc($radio->{'callsign'}), uc($dst)) >= 0) {
+                $match = $radio;
+                push @matches, $s;
+                next;
+            }
+        }
+        if (!@matches) {
+            $net->{'tms'}->queue_msg($rx->{'src_id'}, 'No match for ' . $dst);
+            return;
+        }
+        if ($#matches > 0) {
+            $net->{'tms'}->queue_msg($rx->{'src_id'}, 'Multiple matches: ' . join(' ', @matches));
+            return;
+        }
+        
+        my $s = '' . join(' ', @matches);
+        if (defined $match->{'last_heard'}) {
+            $s .= ' Heard ' . dur_str($now - $match->{'last_heard'});
+        }
+        if ($match->{'last_loc'} && ($match->{'last_lat'}) && ($match->{'last_lng'})) {
+            $s .= ' Loc ' . dur_str($now - $match->{'last_loc'});
+            my($addr) = reverse_geocode($match->{'last_lat'}, $match->{'last_lng'});
+            $s .= ': ' . $addr if (defined $addr);
+        }
+        
+        $net->{'tms'}->queue_msg($rx->{'src_id'}, $s);
+        return;
+    }
     
     my @here;
-    foreach my $radio (values %{ $net->{'registry'} }) {
+    foreach my $radio (sort { $b->{'last_heard'} <=> $a->{'last_heard'} } values %{ $net->{'registry'} }) {
         #warn Dumper($radio);
         if ($radio->{'state'} eq 'here') {
-            push @here, (defined $radio->{'callsign'}) ? $radio->{'callsign'} : $radio->{'id'};
+            warn "here: " . Dumper($radio);
+            my $s = (defined $radio->{'callsign'}) ? $radio->{'callsign'} : $radio->{'id'};
+            if ($now - $radio->{'last_heard'} > $c->{'ars_timeout'}/2) {
+                $s = lc($s);
+            }
+            if (defined $radio->{'last_loc'} && $now - $radio->{'last_loc'} < 15*60 && ($radio->{'last_lat'})) {
+                $s .= '*'; 
+            }
+            push @here, $s;
         }
     }
     
     $net->{'tms'}->queue_msg($rx->{'src_id'}, 'Available: ' . join(' ', @here));
+}
+
+sub send_help($)
+{
+    my($id) = @_;
+    
+    $net->{'tms'}->queue_msg($id, 'ARS-E Commands: Who Aprs');
 }
 
 my %cmds = (
@@ -326,7 +513,81 @@ sub process_msg($)
         warn "process_msg cmd no match\n";
     }
     
-    $net->{'tms'}->queue_msg($rx->{'src_id'}, 'ARS-E Commands: Who Aprs');
+    send_help($rx->{'src_id'});
+}
+
+sub spool_read($)
+{
+    my($f) = @_;
+    
+    if (!open(F, $f)) {
+        warn "Could not open $f for reading: $!\n";
+        return;
+    }
+    
+    my $dst_l = <F>;
+    my $msg = '';
+    while (my $l = <F>) {
+        $msg .= $l;
+    }
+    
+    if (!close(F)) {
+        warn "Could not close $f after reading: $!\n";
+        return;
+    }
+    
+    $dst_l =~ s/\s+//gs;
+    if ($dst_l !~ /^(\@{0,1})(\d+)$/) {
+        warn "Spool file $f contained invalid destination: '$dst_l'\n";
+        return;
+    }
+    my $group_msg = ($1 eq '@') ? 1 : 0;
+    my $dst = $2;
+    
+    $msg =~ s/^\s+//s;
+    $msg =~ s/\s+$//s;
+    $msg =~ s/\s+/ /gs;
+    
+    if ($msg eq '') {
+        warn "Spool file $f contained empty message\n";
+        return;
+    }
+    
+    warn "MSG from spool to $dst_l: $msg\n";
+    $net->{'tms'}->queue_msg($dst, $msg, $group_msg);
+}
+
+sub scan_spool($)
+{
+    my($dir) = @_;
+    
+    opendir(D, $dir) || die "Could not open $dir for reading directory: $!";
+    my @files = grep { /\.msg$/ && -f "$dir/$_" } readdir(D);
+    closedir(D) || die "Could not close directory $dir: $!";
+    
+    foreach my $f (@files) {
+        my $fp = "$dir/$f";
+        warn "processing spool file '$fp'\n";
+        spool_read($fp);
+        unlink($fp) || die "Could not unlink '$fp' after processing: $!";
+    }
+}
+
+sub consider_loc_requests()
+{
+    my $reg = $net->{'registry'};
+    
+    foreach my $id (keys %{ $reg }) {
+        if (defined $reg->{$id}->{'consider_loc_req'} && $reg->{$id}->{'consider_loc_req'} < time()) {
+            my $radio = $reg->{$id};
+            delete $radio->{'consider_loc_req'};
+            next if ($radio->{'state'} ne 'here');
+            # loc request configured, check if we have received locs recently
+            if (!defined $radio->{'last_loc'} || $radio->{'last_loc'} < time() - 7200) {
+                $net->{'loc'}->request_locs($id, $c->{'gps_req_interval'} - 10 + int(rand(30)));
+            }
+        }
+    }
 }
 
 #### MAIN #################
@@ -357,6 +618,9 @@ $net = TRBO::NET->new(
     'tms_port' => $c->{'tms_port'},
     'debug' => 1,
     'cai_net' => $c->{'cai_network'},
+    'cai_group_net' => $c->{'cai_group_network'},
+    'registry_poll_interval' => $c->{'ars_ping_interval'},
+    'registry_timeout' => $c->{'ars_timeout'},
 );
 
 
@@ -372,6 +636,11 @@ if (defined $c->{'aprsis_server'}) {
     $cmds{'a'} = $cmds{'aprs'} = \&cmd_aprs;
 }
 
+status_msg('ARS-E Service started up');
+
+my $is_beacon_int = 19*60 + rand(120);
+my $is_next_beacon = time() + 30;
+
 while (1) {
     if ($is) {
         if (!$is->connected()) {
@@ -383,13 +652,36 @@ while (1) {
             next if ($is_rx =~ /^#/);
             process_is_input($is_rx);
         }
+        
+        # time sometimes goes backward if ntp jumps or sumthing
+        if (time() > $is_next_beacon || time() < $is_next_beacon - 3*$is_beacon_int) {
+            if (defined $c->{'latitude'} && defined $c->{'longitude'} && abs($c->{'latitude'}) > 0.1 && abs($c->{'longitude'}) > 0.1) {
+                warn "IS: beaconing gateway position\n";
+                # push my loc
+                push @upd_q, {
+                    'latitude' => $c->{'latitude'},
+                    'longitude' => $c->{'longitude'},
+                    'symbol' => 'M&',
+                    'callsign' => $c->{'callsign'}
+                };
+                push_updates();
+            }
+            $is_next_beacon = time() + $is_beacon_int;
+        }
+    }
+    
+    # scan for messages which should be sent
+    if (defined $c->{'tms_incoming_spool'}) {
+        scan_spool($c->{'tms_incoming_spool'});
     }
     
     my $rx = $net->receive();
+    
     if (!$rx) {
         $net->registry_scan();
         $net->{'tms'}->queue_run();
         $aprs_msg_cache->scan(300);
+        consider_loc_requests();
         dump_state();
         next;
     }
@@ -404,25 +696,30 @@ while (1) {
             
             # register radio internally and start polling it
             $net->register_radio($rx);
+            # after 10 minutes, check if we're getting loc packets, and if not,
+            # ask for them
             if ($c->{'gps_req_interval'}) {
-                $net->{'loc'}->request_locs($rx->{'src_id'}, $c->{'gps_req_interval'} - 10 + int(rand(30)));
-            } else {
-                $net->{'loc'}->request_no_locs($rx->{'src_id'});
+                $rx->{'registry'}->{'consider_loc_req'} = time() + 600;
             }
         }
         
     } elsif ($rx->{'class'} eq 'loc') {
         if ($rx->{'msg'} eq 'loc' && defined $rx->{'latitude'}) {
-            if (defined $rx->{'registry'} && defined $rx->{'registry'}->{'callsign'} && consider_aprsis_beacon($rx)) {
+            if (!($c->{'gps_req_interval'})) {
+                # got loc but not requested - disable
+                $net->{'loc'}->request_no_locs($rx->{'src_id'});
+            } elsif (defined $rx->{'registry'} && defined $rx->{'registry'}->{'callsign'} && consider_aprsis_beacon($rx)) {
                 my %h = (
                     'latitude' => $rx->{'latitude'},
                     'longitude' => $rx->{'longitude'},
                     'callsign' => $rx->{'registry'}->{'callsign'},
+                    'symbol' => $rx->{'registry'}->{'symbol'}
                 );
                 push @upd_q, \%h;
                 push_updates();
             }
         }
+        $rx->{'registry'}->{'last_loc'} = time();
         
     } elsif ($rx->{'class'} eq 'tms') {
         if ($rx->{'msg'} eq 'msg') {

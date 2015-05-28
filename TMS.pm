@@ -20,7 +20,7 @@ use TRBO::Common;
 our @ISA = ('TRBO::Common');
 
 # this ain't right, but it's start
-my $enc_utf16 = find_encoding("ucs-2") || die "Could not load encoding utf16";
+my $enc_latin = find_encoding("ISO-8859-1") || die "Could not load encoding ISO-8859-1";
 my $enc_utf8 = find_encoding("UTF-8") || die "Could not load encoding UTF-8";
 
 =over
@@ -39,6 +39,14 @@ sub init($)
     
     $self->{'msgid_cache'} = new TRBO::DupeCache();
     $self->{'msgid_cache'}->init();
+    
+    $self->{'queue_length'} = 0;
+    $self->{'msg_tx'} = 0;
+    $self->{'msg_tx_ok'} = 0;
+    $self->{'msg_tx_drop'} = 0;
+    $self->{'msg_tx_group'} = 0;
+    $self->{'msg_rx'} = 0;
+    $self->{'msg_rx_dupe'} = 0;
 }
 
 =over
@@ -94,22 +102,26 @@ sub _decode_msg($$$)
     
     my $op_b = unpack('C', substr($data, 2, 1));
     
-    # header length... just guess, but it seems to match?
-    my $hdr_len = (($op_b & 0x80) >> 7) | (($op_b & 0x40) >> 5) | (($op_b & 0x20) >> 3);
+    $self->_debug("tms op_b " . sprintf('%02x', $op_b));
     
-    $self->_debug("tms op_b " . sprintf('%02x', $op_b) . " hdr_len $hdr_len");
+    my $prefixlen = unpack('C', substr($data, 5, 1));
+    $self->_debug("prefixlen $prefixlen");
     
     # Msgid is 5 bits, 0 to 0x1f. Found out hard way - transmitted
     # message to radio with msgid 0x20 (32) and it ACKed msg 0. So I
     # retransmitted. And retransmitted. And retransmitted. User found this
     # annoying.
     my $msgid = unpack('C', substr($data, 4, 1)) & 0x1f;
-    my $msgdata = substr($data, $hdr_len + 3);
+    
+    my $msgdata = substr($data, 6 + $prefixlen);
     $self->_debug("msgdata: " . TRBO::Common::_hex_dump($msgdata));
     
     # Message appears to be in 16-bit character encoding. For ASCII messages,
     # every second byte is NULL.
     $msgdata =~ s/\0//g;
+    $msgdata = $enc_latin->decode($msgdata);
+    $msgdata = $enc_utf8->encode($msgdata);
+    $self->_debug("after decoding: $msgdata");
     
     # blah, does not work? bytes are wrong way around?
     #my $msg_int = $enc_utf16->decode($msgdata, Encode::FB_QUIET);
@@ -121,6 +133,7 @@ sub _decode_msg($$$)
         $self->_debug("received duplicate msg $msgid from " . $rh->{'src_id'});
         $rh->{'msg'} = 'msg_dupe';
         $rh->{'msgid'} = $msgid;
+        $self->{'msg_rx_dupe'} += 1;
         return 1;
     }
     
@@ -130,6 +143,8 @@ sub _decode_msg($$$)
     $rh->{'op_b'} = $op_b;
     
     $self->_info($rh->{'src_id'} . ": RX MSG $msgid: '" . $msgdata . "'");
+    
+    $self->{'msg_rx'} += 1;
     
     # should reply with 00 03 bf 00 01
     # where last byte is messageid
@@ -157,7 +172,7 @@ sub ack_msg($$)
     # if it had 0xe0 we should have 0x9f.
     $self->_send($rh->{'src_id'},
         pack('C*', ($rh->{'op_b'} == 0xc0) ? 0xbf : 0x9f, 0x00, $rh->{'msgid'}),
-        pack('C', 0x00));
+        '');
 }
 
 sub _decode_ack($$$)
@@ -167,7 +182,11 @@ sub _decode_ack($$$)
     my $msgid = unpack('C', substr($data, 4));
     $self->_info($rh->{'src_id'} . ": RX MSG ack for $msgid");
     
-    $self->dequeue_msg($rh->{'src_id'}, $msgid);
+    if ($self->dequeue_msg($rh->{'src_id'}, $msgid)) {
+        # if the message was dequeued successfully, whe can call the
+        # delivery a success
+        $self->{'msg_tx_ok'} += 1;
+    }
 }
 
 =over
@@ -187,7 +206,7 @@ sub dequeue_msg($$$)
     my $q = $self->{'msgq'}->{$id};
     if ($#{ $q } < 0) {
         $self->_debug("dequeue_msg: queue empty");
-        return;
+        return 0;
     }
     
     for (my $idx = 0; $idx <= $#{ $q }; $idx++) {
@@ -195,9 +214,12 @@ sub dequeue_msg($$$)
         if ($msg->{'msgid'} == $msgid_del) {
             $self->_debug("dequeue_msg: found $msgid_del, deleting");
             splice(@{ $q }, $idx, 1);
-            return;
+            $self->{'queue_length'} -= 1;
+            return 1;
         }
     }
+    
+    return 0;
 }
 
 =over
@@ -210,9 +232,9 @@ Queue text message to be transmitted to radio ID.
 
 =cut
 
-sub queue_msg($$$)
+sub queue_msg($$$;$)
 {
-    my($self, $id, $msg) = @_;
+    my($self, $id, $msg, $group_msg) = @_;
     
     if (!defined($self->{'msgq'})) {
         $self->{'msgq'} = {};
@@ -226,6 +248,8 @@ sub queue_msg($$$)
         $self->{'msgid'} = 30;
     }
     
+    $group_msg = 0 if (!defined $group_msg);
+    
     # msgid is 5 bits, 0 to 31.
     $self->{'msgid'} += 1;
     $self->{'msgid'} = 0 if ($self->{'msgid'} > 31);
@@ -238,8 +262,11 @@ sub queue_msg($$$)
         'retry_int' => $self->{'config'}->{'tms_init_retry_interval'},
         'tries' => 0,
         'msgid' => $self->{'msgid'},
+        'group_msg' => $group_msg,
         'text' => $msg
     };
+    
+    $self->{'queue_length'} += 1;
     
     $self->queue_run();
 }
@@ -281,9 +308,15 @@ sub queue_run($)
             $first->{'tries'} += 1;
             if ($first->{'init_t'} < time() - $self->{'config'}->{'tms_queue_max_age'}) {
                 $self->_info($id . ": TX MSG timed out " . $first->{'msgid'});
-                shift @{ $q };
+                $self->dequeue_msg($id, $first->{'msgid'});
+                $self->{'msg_tx_drop'} += 1;
+                next;
             }
             $self->_queue_tx($id, $first);
+            
+            if ($first->{'group_msg'}) {
+                $self->dequeue_msg($id, $first->{'msgid'});
+            }
         }
     }
     
@@ -296,20 +329,36 @@ sub _queue_tx($$$)
     
     $self->_debug("_queue_tx to $id: " . Dumper($m));
     
-    # This is not right, but ok for ASCII.
-    # message does uses two bytes per character, so I guess some form
-    # of Unicode.
+    if ($m->{'group_msg'}) {
+        $self->{'msg_tx_group'} += 1;
+    } else {
+        $self->{'msg_tx'} += 1;
+    }
+    
+    # ISO-8859-1 with every second byte being NULL.
     my $msg_enc = $m->{'text'};
+    $msg_enc = $enc_utf8->decode($msg_enc);
+    $msg_enc = $enc_latin->encode($msg_enc);
+    $msg_enc = substr($msg_enc, 0, 255);
     $msg_enc =~ s/(.)/$1\000/g;
     
-    $self->_send($id, pack('C*', 0xc0, 0x00, 0x80 | $m->{'msgid'}, 0x04) . $msg_enc, pack('C', 0x00));
+    # hints from http://delog.wordpress.com/2011/06/22/data-applications-on-mototrbo-radios/
+    $self->_send($id,
+        pack('C*',
+            0xc0, # message header 1, culd be 0xa0 too? what else?
+            0x00, # address size (addr may follow)
+            0x80 | $m->{'msgid'}, # mesg header 2, contains msg id
+            0x04 # mesg header 3
+            ) . $msg_enc,
+        '',
+        ($m->{'group_msg'}));
 }
 
 sub _pack($$;$)
 {
     my($self, $data, $prefix) = @_;
     
-    my $out = pack('C', length($data)) . $data;
+    my $out = pack('n', length($data)) . $data;
     
     if (defined $prefix) {
         $out = $prefix . $out;
