@@ -39,7 +39,7 @@ sub init($)
     
     $self->{'msgid_cache'} = new TRBO::DupeCache();
     $self->{'msgid_cache'}->init();
-    
+
     $self->{'queue_length'} = 0;
     $self->{'msg_tx'} = 0;
     $self->{'msg_tx_ok'} = 0;
@@ -101,7 +101,7 @@ sub _decode_msg($$$)
     my($self, $rh, $data) = @_;
     
     my $op_b = unpack('C', substr($data, 2, 1));
-    
+
     $self->_debug("tms op_b " . sprintf('%02x', $op_b));
     
     my $prefixlen = unpack('C', substr($data, 5, 1));
@@ -112,7 +112,7 @@ sub _decode_msg($$$)
     # retransmitted. And retransmitted. And retransmitted. User found this
     # annoying.
     my $msgid = unpack('C', substr($data, 4, 1)) & 0x1f;
-    
+
     my $msgdata = substr($data, 6 + $prefixlen);
     $self->_debug("msgdata: " . TRBO::Common::_hex_dump($msgdata));
     
@@ -145,9 +145,9 @@ sub _decode_msg($$$)
     $self->_info($rh->{'src_id'} . ": RX MSG $msgid: '" . $msgdata . "'");
     
     $self->{'msg_rx'} += 1;
-    
-    # should reply with 00 03 bf 00 01
-    # where last byte is messageid
+
+   # should reply with 00 03 bf 00 01
+   # where last byte is messageid
     
     return 1;
 }
@@ -181,7 +181,7 @@ sub _decode_ack($$$)
     
     my $msgid = unpack('C', substr($data, 4));
     $self->_info($rh->{'src_id'} . ": RX MSG ack for $msgid");
-    
+
     if ($self->dequeue_msg($rh->{'src_id'}, $msgid)) {
         # if the message was dequeued successfully, whe can call the
         # delivery a success
@@ -218,7 +218,7 @@ sub dequeue_msg($$$)
             return 1;
         }
     }
-    
+
     return 0;
 }
 
@@ -247,7 +247,7 @@ sub queue_msg($$$;$)
     if (!defined $self->{'msgid'}) {
         $self->{'msgid'} = 30;
     }
-    
+
     $group_msg = 0 if (!defined $group_msg);
     
     # msgid is 5 bits, 0 to 31.

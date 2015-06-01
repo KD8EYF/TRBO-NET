@@ -93,12 +93,11 @@ sub _clear_errors($)
 sub log_time
 {
     my($t) = @_;
-    
     $t = time() if (!defined $t);
     
     my(@tf) = gmtime($t);
     return sprintf("%04d-%02d-%02d %02d:%02d:%02d",
-        $tf[5]+1900, $tf[4]+1, $tf[3], $tf[2], $tf[1], $tf[0]);
+	$tf[5]+1900, $tf[4]+1, $tf[3], $tf[2], $tf[1], $tf[0]);
 }
 
 sub _log($$)
@@ -263,7 +262,7 @@ sub _make_addr($$;$)
     my($self, $id, $group_net) = @_;
     
     my $host = (defined $group_net && ($group_net)) ? $self->{'config'}->{'cai_group_net'} : $self->{'config'}->{'cai_net'};
-    
+
     $host .= '.' . (($id >> 16) & 0xff) .'.' . (($id >> 8) & 0xff) . '.' . ($id & 0xff);
     my $hisiaddr = inet_aton($host);
     #$self->_debug("_make_addr $id: $host " . $self->{'config'}->{'port'});

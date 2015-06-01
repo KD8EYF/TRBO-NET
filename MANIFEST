@@ -18,3 +18,5 @@ t/02pod-coverage.t
 t/10ars-decode.t
 t/20loc-decode.t
 META.yml                                 Module meta-data (added by MakeMaker)
+Email/MIME.pm
+

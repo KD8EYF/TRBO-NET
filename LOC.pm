@@ -103,16 +103,22 @@ sub _decode_loc($$$$)
     # Latitude and longitude are packed as network byte order integers with
     # little scaling to make them firmly integers in packet.
     # This was pain to get right. GPS simulator helped.
-    # First bit in integer is sign.
+    # First bit in integer is sign.    
     my $x = 45.0 / 1073741824.0;
-    
-    my $lat_i = unpack('N', substr($data, 9, 4));
-    my $lat = ($lat_i & 0x7FFFFFFF) * $x;
-    $lat *= -1 if ($lat_i & 0x80000000);
-    
-    my $lng_i = unpack('N', substr($data, 13, 4));
-    my $lng = ($lng_i & 0x7FFFFFFF) * 2 * $x;
-    $lng *= -1 if ($lng_i & 0x80000000);
+ 
+# Old Code working
+    my $lat = unpack('N', substr($data, 9, 4)) * $x;
+    my $lng = -(360-unpack('N', substr($data, 13, 4)) * 2 * $x);
+
+# New code Islas Cainman
+#    my $lat_i = unpack('N', substr($data, 9, 4));
+#    my $lat = ($lat_i & 0x7FFFFFFF) * $x;
+#    $lat *= -1 if ($lat_i & 0x80000000);
+   
+#    my $lng_i = unpack('N', substr($data, 13, 4));
+#    my $lng = ($lng_i & 0x7FFFFFFF) * 2 * $x;
+#    $lng *= -1 if ($lng_i & 0x80000000);
+
     
     # Altitude and speed probably encoded bit like in BER/ASN.1/SNMP:
     # "base-128 in big-endian order where the 8th bit is 1 if more bytes follow and 0 for the last byte"

@@ -1,7 +1,8 @@
 ##ARS-E DAEMON AUTOMATIC REGISTRATION SERVICE EXTENDABLE  
 
 ###Running Installations  
-[OH2CH - Finland](http://oh2ch.org/trbo/state.php)  
+[OH2CH - Finland](http://oh2ch.org/trbo/state.php) 
+[W8FSM - Fenton, MI](http://ars.moses.bz/) 
 
 ###Installation Examples / Demos
 [W8FSM Rasberry Pi Video](http://youtu.be/j7ItqeQou4k)
@@ -9,9 +10,14 @@
 [KD8EYF Beagle Bone Control Station](http://i.imgur.com/9Uu0T.jpg)  
 
 
+##2015-03-05 Updates
+  Created SMS send function.
+  Created NOAA message function.
+  By Wodie XE1SWL.
+
 ##2013-04-14 Updates
   Created 'updates' branch with following updates. Will test and merge to master. 
-  Thanks to anonymous  
+  Thanks to anonymous (non-working - still branched) 
 
 * fix tx msg charset encode
 * can send group message
@@ -52,6 +58,27 @@ perl Makefile.PL
 make  
 sudo make install  
 ```
+
+Install CPAN libraries
+Used to access the Google gecoding API:
+
+```
+perl -MCPAN -eshell
+install Bundle::LWP
+```
+
+For Underground weather:
+
+```
+sudo cpan Weather::Underground
+```
+
+For e-mail sending:
+
+```
+sudo cpan -fi Email::Send::SMTP::Gmail
+```
+
 
 Edit the config file by hand to include the DMR radio users you want to listen for.  
 the mi5 network config is include as an example of what we did in michigan:  

@@ -16,14 +16,27 @@ use TRBO::NET;
 use TRBO::Common;
 use TRBO::DupeCache;
 
+#sudo chmod 744 arsed
+
 # used to access the Google gecoding API
 use LWP;
 use LWP::UserAgent;
 use HTTP::Request::Common;
 use URI::Escape qw(uri_escape);
 
+# For e-mail sending.
+use Email::Send::SMTP::Gmail;
+use Net::SMTPS;
+# use Mail::Webmail::Gmail;
+
+# For Underground weather:
+use Weather::Underground;
+
+# For personal control.
+my $aprs_enable;
+
 my $me = 'arsed';
-my $VERSION = '1.00';
+my $VERSION = '1.50';
 
 my $c;
 my @cfgfiles = ( 'tools/arsed.conf', '/usr/local/etc/arsed.conf', '/etc/arsed.conf' );
@@ -57,7 +70,7 @@ sub dur_str($)
     if ($s >= 24 * 60 * 60) {
         my $d = POSIX::floor($s / (24 * 60 * 60));
         $s -= $d * 24 * 60 * 60;
-        $str .= $d . 'd ';
+        $str .= $d . 'd ';
     }
     
     if ($s >= 60 * 60) {
@@ -136,6 +149,7 @@ sub status_msg($)
     }
 }
 
+
 sub is_config()
 {
     $is = new Ham::APRS::IS($c->{'aprsis_server'}, $c->{'callsign'},
@@ -186,13 +200,16 @@ sub push_updates()
             1, # compression
             0); # no ambiguity
         #print "$aprs_position\n";
-        
+
         my $packet = sprintf('%s>APTR01:!%s', $ent->{'callsign'}, $aprs_position);
         #print "$packet\n";
-        my $ok = $is->sendline($packet);
-        if (!$ok) {
-            $is->disconnect();
-        }
+
+	if ($aprs_enable == 1){
+            my $ok = $is->sendline($packet);
+            if (!$ok) {
+                $is->disconnect();
+            }
+	}
     }
     
     @upd_q = ();
@@ -221,7 +238,7 @@ sub consider_aprsis_beacon($)
     
     $reg->{'last_lat'} = $rx->{'latitude'};
     $reg->{'last_lng'} = $rx->{'longitude'};
-    
+
     # if never beaconed before, do it now
     return do_aprsis_beacon($rx) if (!defined $reg->{'last_aprsis'});
     
@@ -384,6 +401,9 @@ sub reload_state()
     $net->registry_scan(1);
 }
 
+##############################################################################################
+# APRS
+##############################################################################################
 sub cmd_aprs($$)
 {
     my($rx, $args) = @_;
@@ -408,14 +428,286 @@ sub cmd_aprs($$)
         . ": $msg\n";
     my $ok = $is->sendline($aprsmsg);
     if (!$ok) {
+        warn "Error sending APRS message from " . $rx->{'registry'}->{'callsign'} . "to $dst \n";
         $is->disconnect();
     }
 }
 
+##############################################################################################
+# Control
+##############################################################################################
+sub cmd_ctl($$)
+{
+    my($rx, $args) = @_;
+    return if (!$is);
+    my($cmd, $dst, @words) = @$args;
+    my $msg = join(' ', @words);
+    warn "Control message: "
+        . $rx->{'registry'}->{'callsign'} . '>' . $dst
+        . ": $msg\n";
+
+    if ($rx->{'registry'}->{'id'} eq '3341010') {
+	if ($dst eq 'aprs') {
+	    $aprs_enable = $msg;
+	    $net->{'tms'}->queue_msg(3341010, "APRS Enable = " . $aprs_enable);
+	}
+    }
+
+}
+
+##############################################################################################
+# email
+##############################################################################################
+sub cmd_email($$)
+{
+    my($rx, $args) = @_;
+
+    return if (!$is);
+
+    my($cmd, $dst, @words) = @$args;
+
+    my $msg = join(' ', @words);
+
+    warn "e-mail message gateway: "
+        . $rx->{'registry'}->{'callsign'} . ' To: ' . $dst
+        . " Body: $msg\n";
+
+    my $subject= 'DMR e-mail from: ' . $rx->{'registry'}->{'name'} . ' ' .  $rx->{'registry'}->{'short_callsign'};
+    my $body= $msg . "\n" . $rx->{'registry'}->{'name'} . "\n" . $rx->{'registry'}->{'short_callsign'};
+
+    my $mail=Email::Send::SMTP::Gmail->new( -smtp=>'smtp.gmail.com',
+	-login=>$rx->{'registry'}->{'email_username'},
+        -pass=>$rx->{'registry'}->{'email_password'},
+	-layer=>'ssl',
+	-port=>465,
+#	-verbose=>1,
+#	-debug=>1
+    );
+    $mail->send( -to=>$dst,
+	-subject=>$subject,
+	-body=>$body,
+	-contenttype=>'text/html',
+ 	-layer=>'ssl',
+	-port=>465,
+#	-verbose=>1,
+#	-debug=>1
+    );
+    $mail->bye;
+
+    print "email Sent by: $rx->{'registry'}->{'name'} $rx->{'registry'}->{'short_callsign'}.\n";
+}
+
+##############################################################################################
+#Kill
+##############################################################################################
+sub cmd_kill($$)
+{
+    my($rx, $args) = @_;
+    #warn "APRS cmd\n";
+
+    return if (!$is);
+
+    my($cmd, $dst, @words) = @$args;
+
+    $net->{'tms'}->queue_msg(3341010, "Radio " . $rx->{'src_id'} . ' killed ARSED.');
+
+    die("Warning: radio " . $rx->{'src_id'} . " killed ARSED.");
+}
+
+##############################################################################################
+# NOAA
+##############################################################################################
+sub cmd_noaa($$)
+{
+    my($rx, $args) = @_;
+    return if (!$is);
+    my($cmd, @words) = @$args;
+    my $msg = join(' ', @words);
+
+    # Wunderground:
+    my $key;
+    my $value;
+    my $weather = Weather::Underground->new(
+	    place => $msg,
+            debug => 0,
+        )
+        || warn "Error, could not create new weather object: $@\n";
+
+    my $arrayref = $weather->get_weather()
+        || warn "Error, calling get_weather() failed: $@\n";
+
+    my ($place, $temp_c, $humidity, $conditions, $wind_dir, $wind_kmph, $pressure, $updated, $clouds, $dew_point_c, $visibility_km);
+    
+    foreach (@$arrayref) {
+        print "MATCH:\n";
+        while (($key, $value) = each %{$_}) {
+            print "\t$key = $value\n";
+            if ($key eq 'place'  ){
+                $place =  $value;
+            };
+            if ($key eq 'temperature_celsius'  ){
+                $temp_c = $value;
+            };
+            if ($key eq 'humidity'  ){
+                $humidity = $value;
+            };
+            if ($key eq 'conditions'  ){
+                $conditions = $value;
+            };
+            if ($key eq 'wind_direction'  ){
+                $wind_dir = $value;
+            };
+            if ($key eq 'wind_kilometersperhour'  ){
+                $wind_kmph = $value;
+            };
+            if ($key eq 'pressure'  ){
+                $pressure = $value;
+            };
+            if ($key eq 'updated'  ){
+                $updated = $value;
+            };
+            if ($key eq 'clouds'  ){
+                $clouds = $value;
+            };
+            if ($key eq 'dewpoint_celcius'  ){
+                $dew_point_c = $value;
+            };
+            if ($key eq 'visibility_kilometers'  ){
+                $visibility_km = $value;
+            };
+        }
+    }
+    $msg = "$place at $updated Temp: $temp_c, wind: $wind_kmph kmph $wind_dir, Humidity: $humidity, Press: $pressure";
+    print "Message: " . $msg . "\n";
+
+    warn "NOAA report to radio: "
+        . $rx->{'registry'}->{'callsign'} . '>'
+        . ": $msg\n";
+    $net->{'tms'}->queue_msg($rx->{'src_id'}, 'NOAA: ' . $msg);
+}
+
+##############################################################################################
+# Ping
+##############################################################################################
+sub cmd_ping($$)
+{
+    my($rx) = @_;
+    
+    my $datestring = gmtime();
+    $net->{'tms'}->queue_msg($rx->{'src_id'}, 'Echo to radio: ' . $rx->{'src_id'} . ' GMT ' . $datestring);
+}
+
+##############################################################################################
+# SMS
+##############################################################################################
+sub cmd_sms($$)
+{
+    my($rx, $args) = @_;
+    return if (!$is);
+    my($cmd, $dst, @words) = @$args;
+    my $msg = join(' ', @words);
+    warn "Bulk SMS message gateway: "
+	. $rx->{'registry'}->{'callsign'} . '>' . $dst
+	. ": $msg\n";
+
+    # This block is from Bulk SMS code samples, Perl version.
+    my $ua = LWP::UserAgent->new(timeout => 30);
+
+    # Please see the FAQ regarding HTTPS (port 443) and HTTP (port 80/5567)
+    # If your firewall blocks acces to port 5567, you can fall back to port 80:
+    # my $req = HTTP::Request->new(POST =>'http://bulksms.vsms.net/eapi/submission/send_sms/2/2.0');
+    # (See FAQ for more details.)
+    #my $req = HTTP::Request->new(POST =>'http://bulksms.vsms.net:5567/eapi/submission/send_sms/2/2.0');
+    my $req = HTTP::Request->new(POST =>'http://bulksms.vsms.net/eapi/submission/send_sms/2/2.0');
+    $req->content_type('application/x-www-form-urlencoded');
+    $req->content('username=' . $rx->{'registry'}->{'sms_username'} . '&password=' . $rx->{'registry'}->{'sms_password'} . '&msisdn=' . $dst . 
+	'&sender=' . $rx->{'registry'}->{'sms_sender_id'} . '&repliable=0' . '&message= ' . $msg .
+	" From:$rx->{'registry'}->{'short_callsign'} $rx->{'registry'}->{'sms_reply_phone'}"
+    );
+    print 'username=' . $rx->{'registry'}->{'sms_username'} . '&password=xxxx' . '&msisdn=' . $dst . 
+	'&sender=' . $rx->{'registry'}->{'sms_sender_id'} . '&repliable=0' . '&message=' . $msg .
+        " From:" . $rx->{'registry'}->{'short_callsign'} . " " . $rx->{'registry'}->{'sms_reply_phone'} . "\n";
+
+    my $res = $ua->request($req);
+
+   if ($res->is_error) {
+        #die "HTTP request error, with error code " . $res->code .
+	#	", and body:\n\n" . $res->error_as_HTML;
+    }
+
+    my ($result_code, $result_string, $batch_id) = split(/\|/, $res->content);
+
+    if ($result_code eq '0') {
+	print "Message sent: batch $batch_id\n";
+	$net->{'tms'}->queue_msg($rx->{'src_id'}, 'SMS Sent.');
+	$is->disconnect();# This line comes from original arsed.
+    }
+    else {
+	print "Error sending: $result_code: $result_string\n";
+#        $net->{'tms'}->queue_msg($rx->{'src_id'}, "SMS Error sending: $result_code: $result_string.");
+    }
+    print "\n";
+    #Bulk SMS block end.
+}
+
+##############################################################################################
+# Get SMS
+##############################################################################################
+sub cmd_get_sms($$)
+{
+    my($rx, $args) = @_;
+    return if (!$is);
+    my($cmd, $dst, @words) = @$args;
+    my $msg = join(' ', @words);
+    warn "Bulk SMS message gateway: "
+        . $rx->{'registry'}->{'callsign'} . '>' . $dst
+        . ": $msg\n";
+
+    # This block is from Bulk SMS code samples, Perl version.
+    my $ua = LWP::UserAgent->new(timeout => 30);
+
+    # Please see the FAQ regarding HTTPS (port 443) and HTTP (port 80/5567)
+    # If your firewall blocks acces to port 5567, you can fall back to port 80:
+    # my $req = HTTP::Request->new(POST =>'http://bulksms.vsms.net/eapi/submission/send_sms/2/2.0');
+    # (See FAQ for more details.)
+    #my $req = HTTP::Request->new(POST =>'http://bulksms.vsms.net:5567/eapi/submission/send_sms/2/2.0');
+    my $req = HTTP::Request->new(POST =>'http://bulksms.vsms.net/eapi/reception/get_inbox/1/1.1');
+    $req->content_type('application/x-www-form-urlencoded');
+    $req->content('username=' . $rx->{'registry'}->{'sms_username'} . '&password=' . $rx->{'registry'}->{'sms_password'} . '&last_retrieved_id=' . $dst);
+    print 'username=' .$rx->{'registry'}->{'sms_username'}  . '&password=xxxx' . '&last_retrieved_id=' . $dst . "\n";
+
+    my $res = $ua->request($req);
+
+    if ($res->is_error) {
+        #die "HTTP request error, with error code " . $res->code .
+        #       ", and body:\n\n" . $res->error_as_HTML;
+    }
+
+    my ($result_code, $status_description, $extra_info, @resp_data) = split(/\|/, $res->content);
+
+    if ($result_code eq '0') {
+
+	my $data = join(' ', @resp_data);
+
+        print $res->content . "\n";
+#        $net->{'tms'}->queue_msg($rx->{'src_id'}, 'Last SMS Rx:' $dst);
+        $is->disconnect();# This line comes from original arsed.
+    }
+    else {
+        print "Error geting: $result_code: $status_description.\n";
+        $net->{'tms'}->queue_msg($rx->{'src_id'}, "SMS Error Getting: $result_code: $status_description.");
+    }
+    print "\n";
+    #Bulk SMS block end.
+}
+
+##############################################################################################
+# Who
+##############################################################################################
 sub cmd_who($$)
 {
     my($rx, $args) = @_;
-    
+
     my($cmd, $dst) = @$args;
     
     my $now = time();
@@ -453,6 +745,8 @@ sub cmd_who($$)
             $s .= ' Loc ' . dur_str($now - $match->{'last_loc'});
             my($addr) = reverse_geocode($match->{'last_lat'}, $match->{'last_lng'});
             $s .= ': ' . $addr if (defined $addr);
+            $s .= ' Lat ' . $match->{'last_lat'};
+            $s .= ' Lng ' . $match->{'last_lng'};
         }
         
         $net->{'tms'}->queue_msg($rx->{'src_id'}, $s);
@@ -478,17 +772,58 @@ sub cmd_who($$)
     $net->{'tms'}->queue_msg($rx->{'src_id'}, 'Available: ' . join(' ', @here));
 }
 
+##############################################################################################
+# send_help
+##############################################################################################
 sub send_help($)
 {
     my($id) = @_;
     
-    $net->{'tms'}->queue_msg($id, 'ARS-E Commands: Who Aprs');
+    $net->{'tms'}->queue_msg($id, 'ARS-E Commands: APRS, email, NOAA, Ping SMS, Who');
 }
 
+##############################################################################################
+# Valid Commands
+##############################################################################################
 my %cmds = (
+    'ctl' => \&cmd_ctl,
+    'getmail' => \&cmd_check_email,
+    'email' => \&cmd_email,
+    'e' => \&cmd_email,
+    'getsms' => \&cmd_get_sms,
+    'kill' => \&cmd_kill,
+    'noaa' => \&cmd_noaa,
+    'ping' => \&cmd_ping,
+    'sms' => \&cmd_sms,
     'who' => \&cmd_who,
     'w' => \&cmd_who,
 );
+
+
+###############################################################################$
+# Get email
+###############################################################################$
+sub cmd_get_email($$)
+{
+    my($rx, $args) = @_;
+
+    my($cmd, $dst) = @$args;
+
+
+#    my $gmail = Mail::Webmail::Gmail->new(
+#	username => $rx->{'registry'}->{'email_username'}, password=> $rx->{'registry'}->{'email_password'},
+#    );
+#    my @labels = $gmail->get_labels();
+#    my $messages = $gmail->get_messages( label => $labels[0] );
+#    foreach ( @{ $messages } ) {
+#	if ( $_->{ 'new' } ) {
+#            print "Subject: " . $_->{ 'subject' } . " / Blurb: " . $_->{ 'blurb' } . "\n";
+#	    $net->{'tms'}->queue_msg($rx->{'src_id'}, 'From ' . $_->{'sender} . ' Subj ' . $_->{'subject'});
+#	}
+#    }
+
+}
+
 
 sub process_msg($)
 {
@@ -588,10 +923,12 @@ sub consider_loc_requests()
             }
         }
     }
+
 }
 
-#### MAIN #################
-
+##############################################################################################
+#### MAIN ####
+##############################################################################################
 # select which config file is present
 my $cfgfile;
 foreach my $f (@cfgfiles) {
@@ -610,7 +947,7 @@ my $yaml = YAML::Tiny->new;
 my $conf = YAML::Tiny->read($cfgfile);
 $c = shift @$conf;
 
-#warn "Config: " . Dumper($c);
+warn "Config: " . Dumper($c);
 
 $net = TRBO::NET->new(
     'ars_port' => $c->{'ars_port'},
@@ -623,12 +960,13 @@ $net = TRBO::NET->new(
     'registry_timeout' => $c->{'ars_timeout'},
 );
 
-
 # configure radios
 while (my $radio = shift @$conf) {
     $net->configure_radio($radio);
 }
 reload_state();
+
+$aprs_enable = 1;#Default value to upload fixed APRS positions.
 
 if (defined $c->{'aprsis_server'}) {
     is_config();
@@ -652,16 +990,16 @@ while (1) {
             next if ($is_rx =~ /^#/);
             process_is_input($is_rx);
         }
-        
-        # time sometimes goes backward if ntp jumps or sumthing
+
+        # Ttime sometimes goes backward if ntp jumps or something.
         if (time() > $is_next_beacon || time() < $is_next_beacon - 3*$is_beacon_int) {
             if (defined $c->{'latitude'} && defined $c->{'longitude'} && abs($c->{'latitude'}) > 0.1 && abs($c->{'longitude'}) > 0.1) {
-                warn "IS: beaconing gateway position\n";
-                # push my loc
+                warn "APRS-IS: beaconing gateway position\n";
+                # push my gateway loc
                 push @upd_q, {
                     'latitude' => $c->{'latitude'},
                     'longitude' => $c->{'longitude'},
-                    'symbol' => 'M&',
+                    'symbol' => $c->{'symbol'},
                     'callsign' => $c->{'callsign'}
                 };
                 push_updates();
@@ -676,12 +1014,12 @@ while (1) {
     }
     
     my $rx = $net->receive();
-    
+
     if (!$rx) {
         $net->registry_scan();
         $net->{'tms'}->queue_run();
         $aprs_msg_cache->scan(300);
-        consider_loc_requests();
+	consider_loc_requests();
         dump_state();
         next;
     }
@@ -695,8 +1033,8 @@ while (1) {
             # could have some policy here on what to accept...
             
             # register radio internally and start polling it
-            $net->register_radio($rx);
-            # after 10 minutes, check if we're getting loc packets, and if not,
+	    $net->register_radio($rx);
+	    # after 10 minutes, check if we're getting loc packets, and if not,
             # ask for them
             if ($c->{'gps_req_interval'}) {
                 $rx->{'registry'}->{'consider_loc_req'} = time() + 600;
@@ -709,13 +1047,22 @@ while (1) {
                 # got loc but not requested - disable
                 $net->{'loc'}->request_no_locs($rx->{'src_id'});
             } elsif (defined $rx->{'registry'} && defined $rx->{'registry'}->{'callsign'} && consider_aprsis_beacon($rx)) {
-                my %h = (
-                    'latitude' => $rx->{'latitude'},
-                    'longitude' => $rx->{'longitude'},
-                    'callsign' => $rx->{'registry'}->{'callsign'},
-                    'symbol' => $rx->{'registry'}->{'symbol'}
-                );
-                push @upd_q, \%h;
+
+                if ($aprs_enable == 1){
+                    push @upd_q,{
+                        'latitude' => $rx->{'latitude'},
+                        'longitude' => $rx->{'longitude'},
+                        'symbol'   => $rx->{'registry'}->{'symbol'},
+                        'callsign' => $rx->{'registry'}->{'callsign'}
+                    };
+                } else {
+                    push @upd_q,{
+                        'latitude' => 19.380834,# Test Location.
+                        'longitude' => -99.176753,# Test Location.
+                        'symbol'   => $rx->{'registry'}->{'symbol'},
+                        'callsign' => $rx->{'registry'}->{'callsign'}
+                    };
+                }
                 push_updates();
             }
         }
