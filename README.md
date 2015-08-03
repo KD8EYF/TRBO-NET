@@ -6,6 +6,8 @@
 [W8FSM - Fenton, MI](http://ars.moses.bz/) 
 
 ###Installation Examples / Demos
+[KB9MWR Video](https://youtu.be/gxjyrYZn3Ds)
+
 [W8FSM Rasberry Pi Video](http://youtu.be/j7ItqeQou4k)
 
 [KD8EYF Video](http://youtu.be/85EdiW7mbXQ)  
